@@ -39,6 +39,28 @@ const SandboxResponse = z.object({
   }),
 })
 
+const TaskResponse = z.object({
+  taskId: z.string().uuid(),
+  title: z.string(),
+  description: z.string(),
+  status: z.enum(['pending', 'assigned', 'in_progress', 'completed', 'failed']),
+  assignedTo: z.string().uuid().nullable(),
+  result: z.string().nullable(),
+  createdAt: z.string(),
+  completedAt: z.string().nullable(),
+})
+
+const MessageResponse = z.object({
+  messageId: z.string().uuid(),
+  fromAgent: z.string().uuid(),
+  toAgent: z.string().uuid(),
+  content: z.string(),
+  type: z.enum(['task', 'result', 'status', 'error']),
+  threadId: z.string().uuid().nullable(),
+  createdAt: z.string(),
+  read: z.boolean(),
+})
+
 const ErrorResponse = z.object({
   error: z.string(),
   message: z.string(),
@@ -46,7 +68,7 @@ const ErrorResponse = z.object({
 })
 
 // ============================================================
-// API CONTRACT (FROZEN)
+// API CONTRACT
 // ============================================================
 
 export const contract = c.router({
@@ -56,6 +78,17 @@ export const contract = c.router({
   // ============================================================
 
   agents: {
+    list: {
+      method: 'GET',
+      path: '/api/agents',
+      responses: {
+        200: z.object({
+          agents: z.array(AgentResponse),
+        }),
+      },
+      summary: 'List all agents',
+    },
+
     spawn: {
       method: 'POST',
       path: '/api/agents',
@@ -63,8 +96,12 @@ export const contract = c.router({
         201: AgentResponse,
         500: ErrorResponse,
       },
-      body: z.object({}), // Empty for hackathon (auto-spawn director)
-      summary: 'Spawn a Director agent',
+      body: z.object({
+        type: z.enum(['director', 'specialist']).optional(),
+        specialization: z.enum(['researcher', 'writer', 'analyst', 'general']).optional(),
+        parentId: z.string().uuid().optional(),
+      }),
+      summary: 'Spawn an agent',
     },
 
     submitTask: {
@@ -219,6 +256,56 @@ export const contract = c.router({
       summary: 'Kill sandbox',
     },
   },
+
+  // ============================================================
+  // TASK ROUTES
+  // ============================================================
+
+  tasks: {
+    list: {
+      method: 'GET',
+      path: '/api/tasks',
+      responses: {
+        200: z.object({
+          tasks: z.array(TaskResponse),
+        }),
+      },
+      summary: 'List all tasks',
+    },
+
+    get: {
+      method: 'GET',
+      path: '/api/tasks/:id',
+      responses: {
+        200: TaskResponse,
+        404: ErrorResponse,
+      },
+      pathParams: z.object({
+        id: z.string().uuid(),
+      }),
+      summary: 'Get task by ID',
+    },
+  },
+
+  // ============================================================
+  // MESSAGE ROUTES
+  // ============================================================
+
+  messages: {
+    list: {
+      method: 'GET',
+      path: '/api/messages',
+      responses: {
+        200: z.object({
+          messages: z.array(MessageResponse),
+        }),
+      },
+      query: z.object({
+        limit: z.coerce.number().optional(),
+      }),
+      summary: 'List messages',
+    },
+  },
 })
 
 // ============================================================
@@ -230,4 +317,6 @@ export type ApiContract = typeof contract
 // Export individual response types
 export type AgentResponseType = z.infer<typeof AgentResponse>
 export type SandboxResponseType = z.infer<typeof SandboxResponse>
+export type TaskResponseType = z.infer<typeof TaskResponse>
+export type MessageResponseType = z.infer<typeof MessageResponse>
 export type ErrorResponseType = z.infer<typeof ErrorResponse>
