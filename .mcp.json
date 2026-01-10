@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "filesystem-with-morph": {
+      "command": "npx",
+      "args": ["-y", "@morphllm/morphmcp"],
+      "env": {
+        "MORPH_API_KEY": "sk-0wF974oiV3banNXijw1JW4pABnTWmR_aRUBn3SixfQnGFWrN"
+      }
+    },
+    "playwriter": {
+      "command": "npx",
+      "args": ["playwriter"]
+    }
+  }
+}
