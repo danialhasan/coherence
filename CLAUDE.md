@@ -17,50 +17,51 @@ Demonstrates:
 
 ---
 
-## CRITICAL: Dual-Path Strategy
+## Primary Focus: Web Approach
 
-**We have two specs. Choose based on E2B validation in Hour 0-1.**
+**We're building the Web approach (E2B + Vue + Fastify) with CLI as fallback.**
 
-| Spec | When to Use | Interface |
-|------|-------------|-----------|
-| [`docs/SPEC-WEB.md`](docs/SPEC-WEB.md) | E2B validation passes | Web UI + API |
-| [`docs/SPEC-CLI.md`](docs/SPEC-CLI.md) | E2B validation fails OR too buggy | CLI + Terminal |
+```
+📁 docs/specs/
+├── web/                    ← PRIMARY (start here)
+│   ├── SPEC.md            # E2B + Vue + Fastify specification
+│   └── DEP-GRAPH.md       # Web-specific work breakdown
+│
+└── cli/                    ← FALLBACK (if E2B fails)
+    ├── SPEC.md            # Local + CLI specification
+    └── DEP-GRAPH.md       # CLI-specific work breakdown
+```
 
 ### Decision Flow
 
 ```
-Hour 0-1: Run E2B Validation
-          ├─ All tests pass → Use SPEC-WEB.md (E2B + Vue + Fastify)
-          └─ Any test fails → Use SPEC-CLI.md (Local + CLI)
-
-Both paths deliver THE SAME DEMO:
-  • Multi-agent coordination via MongoDB
-  • Checkpoint/resume on kill/restart
-  • Real-time visibility in MongoDB Compass
+Hour 0-1: Run E2B Validation (pnpm tsx scripts/validate-e2b.ts)
+          │
+          ├─ ✅ All tests pass → Build from docs/specs/web/
+          │   • E2B sandboxes for agent execution
+          │   • Fastify API for control
+          │   • Vue dashboard for visualization
+          │
+          └─ ❌ Any test fails → Switch to docs/specs/cli/
+              • Local Node processes
+              • CLI commands
+              • Same core demo, less complexity
 ```
-
-### Run Validation
-
-```bash
-pnpm tsx scripts/validate-e2b.ts
-```
-
-See [`docs/DEP-GRAPH.md`](docs/DEP-GRAPH.md) for detailed validation steps.
 
 ---
 
-## Tech Stack
+## Tech Stack (Web Approach)
 
-| Component | Web Approach | CLI Approach |
-|-----------|--------------|--------------|
-| Runtime | Node.js 20.x + TypeScript | Same |
-| Package Manager | pnpm | Same |
-| Database | MongoDB Atlas | Same |
-| Validation | Zod | Same |
-| Agent Execution | **E2B Sandboxes** | **Local Node processes** |
-| Backend | **Fastify + WebSocket** | **None** |
-| Frontend | **Vue 3 + Vite** | **Terminal + MongoDB Compass** |
-| AI SDK | @anthropic-ai/sdk | Same |
+| Component | Technology |
+|-----------|------------|
+| Runtime | Node.js 20.x + TypeScript |
+| Package Manager | pnpm |
+| Database | MongoDB Atlas |
+| Validation | Zod |
+| Agent Execution | **E2B Sandboxes** |
+| Backend | **Fastify + WebSocket** |
+| Frontend | **Vue 3 + Vite** |
+| AI SDK | @anthropic-ai/sdk |
 
 ---
 
@@ -90,26 +91,15 @@ Both approaches share the same core systems:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Difference: Execution Layer
-
-| Web Approach | CLI Approach |
-|--------------|--------------|
-| E2B Sandbox Manager | Local Process Manager |
-| Fastify API Routes | CLI Commands (Commander.js) |
-| Vue Dashboard | Terminal output |
-| WebSocket streaming | stdout/stderr |
-
 ---
 
 ## Demo Script (3 minutes)
-
-**Same for both approaches:**
 
 1. **Start:** Director receives task "Research MongoDB agent coordination"
 2. **Show:** MongoDB Compass — `agents` collection shows Director spawning Specialists
 3. **Show:** MongoDB Compass — `messages` collection shows coordination in real-time
 4. **Watch:** Specialists execute research tasks in parallel
-5. **Kill:** One Specialist agent mid-task (Ctrl+C or UI button)
+5. **Kill:** One Specialist agent mid-task (UI button or Ctrl+C)
 6. **Show:** MongoDB Compass — `checkpoints` shows saved state
 7. **Restart:** Specialist loads checkpoint, continues from last action
 8. **Complete:** Director aggregates results, outputs summary
@@ -135,7 +125,7 @@ cp .env.example .env
 # Edit .env with your keys:
 #   MONGODB_URI=mongodb+srv://...
 #   ANTHROPIC_API_KEY=sk-ant-...
-#   E2B_API_KEY=... (if using Web approach)
+#   E2B_API_KEY=...
 ```
 
 ### Hour 0-1: Validation
@@ -148,9 +138,8 @@ pnpm tsx scripts/validate-mongo.ts
 pnpm tsx scripts/validate-e2b.ts
 ```
 
-### Development
+### Development (Web Approach)
 
-**Web Approach:**
 ```bash
 # Start backend
 pnpm run dev:api
@@ -161,15 +150,6 @@ cd web && pnpm run dev
 # Open http://localhost:3000
 ```
 
-**CLI Approach:**
-```bash
-# Start Director
-pnpm run director --task "Research MongoDB agent coordination"
-
-# Specialists spawn automatically via Director
-# Or manually: pnpm run specialist --specialization researcher
-```
-
 ---
 
 ## Project Structure
@@ -177,14 +157,19 @@ pnpm run director --task "Research MongoDB agent coordination"
 ```
 squad-lite/
 ├── CLAUDE.md                     # This file (start here)
+├── README.md                     # Project overview
 ├── package.json
 ├── tsconfig.json
 ├── .env.example
 │
 ├── docs/
-│   ├── SPEC-WEB.md              # Web approach spec
-│   ├── SPEC-CLI.md              # CLI fallback spec
-│   ├── DEP-GRAPH.md             # Work breakdown + validation gate
+│   ├── specs/
+│   │   ├── web/                 # ← PRIMARY SPEC
+│   │   │   ├── SPEC.md
+│   │   │   └── DEP-GRAPH.md
+│   │   └── cli/                 # ← FALLBACK SPEC
+│   │       ├── SPEC.md
+│   │       └── DEP-GRAPH.md
 │   └── research/                # E2B, SDK research artifacts
 │
 ├── .claude/
@@ -211,17 +196,17 @@ squad-lite/
 │   │   ├── base.ts              # ✅ Base agent
 │   │   ├── director.ts          # 🔴 Director
 │   │   └── specialist.ts        # 🔴 Specialist
-│   ├── sandbox/                 # Web approach only
+│   ├── sandbox/                 # Web approach
 │   │   └── manager.ts           # 🔴 E2B integration
-│   ├── process/                 # CLI approach only
+│   ├── process/                 # CLI fallback
 │   │   └── manager.ts           # 🔴 Local process manager
 │   ├── sdk/
 │   │   └── runner.ts            # 🔴 Claude SDK wrapper
-│   └── api/                     # Web approach only
+│   └── api/                     # Web approach
 │       ├── server.ts
 │       └── routes/
 │
-├── web/                         # Web approach only
+├── web/                         # Web approach
 │   ├── package.json
 │   └── src/
 │       ├── App.vue
@@ -260,11 +245,12 @@ process.env.MONGODB_URI
 
 ### Hackathon-Specific
 
-1. **Happy path only** — No complex error handling
-2. **MongoDB is visibility** — Use Compass for judges
-3. **3 agents max** — Reliable demo over impressive scale
-4. **Checkpoint everything** — Enable the kill/restart demo
-5. **Fail fast** — Validate E2B in Hour 0, pivot if needed
+1. **Web-first** — Building E2B + Vue + Fastify (CLI is fallback only)
+2. **Happy path only** — No complex error handling
+3. **MongoDB is visibility** — Use Compass for judges
+4. **3 agents max** — Reliable demo over impressive scale
+5. **Checkpoint everything** — Enable the kill/restart demo
+6. **Fail fast** — Validate E2B in Hour 0, pivot if needed
 
 ---
 
@@ -280,11 +266,13 @@ process.env.MONGODB_URI
 
 ## Reading Order for Agents
 
-1. **This file** — Overview + dual-path strategy
-2. **[`docs/DEP-GRAPH.md`](docs/DEP-GRAPH.md)** — Work breakdown + validation gate
-3. **[`docs/SPEC-WEB.md`](docs/SPEC-WEB.md)** OR **[`docs/SPEC-CLI.md`](docs/SPEC-CLI.md)** — Based on E2B validation
+1. **This file** — Overview + web focus
+2. **[`docs/specs/web/SPEC.md`](docs/specs/web/SPEC.md)** — Primary specification
+3. **[`docs/specs/web/DEP-GRAPH.md`](docs/specs/web/DEP-GRAPH.md)** — Work breakdown + timeline
 4. **Behavior skills** — `.claude/skills/` for agent protocols
+
+*Only read CLI spec if E2B validation fails.*
 
 ---
 
-_Last updated: 2026-01-10 (v3.0 - Dual-path strategy)_
+_Last updated: 2026-01-10 (v3.1 - Web focus with organized specs)_
