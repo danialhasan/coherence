@@ -33,6 +33,7 @@ export const createServer = async (): Promise<FastifyInstance> => {
   // Enable CORS
   await app.register(cors, {
     origin: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   })
 
   // Enable WebSocket
@@ -74,6 +75,9 @@ export const createServer = async (): Promise<FastifyInstance> => {
               status: a.status,
               sandboxId: a.sandboxId,
               sandboxStatus: a.sandboxStatus,
+              specialization: a.specialization,
+              parentId: a.parentId ?? null,
+              taskId: a.taskId ?? null,
               createdAt: a.createdAt.toISOString(),
               lastHeartbeat: a.lastHeartbeat.toISOString(),
             })),
@@ -104,6 +108,9 @@ export const createServer = async (): Promise<FastifyInstance> => {
                 status: agent.status,
                 sandboxId: agent.sandboxId,
                 sandboxStatus: agent.sandboxStatus,
+                specialization: agent.specialization,
+                parentId: agent.parentId ?? null,
+                taskId: agent.taskId ?? null,
                 createdAt: agent.createdAt.toISOString(),
                 lastHeartbeat: agent.lastHeartbeat.toISOString(),
               },
@@ -130,6 +137,9 @@ export const createServer = async (): Promise<FastifyInstance> => {
                 status: agent.status,
                 sandboxId: agent.sandboxId,
                 sandboxStatus: agent.sandboxStatus,
+                specialization: agent.specialization,
+                parentId: agent.parentId ?? null,
+                taskId: agent.taskId ?? null,
                 createdAt: agent.createdAt.toISOString(),
                 lastHeartbeat: agent.lastHeartbeat.toISOString(),
               },
@@ -147,6 +157,9 @@ export const createServer = async (): Promise<FastifyInstance> => {
                 status: agent.status,
                 sandboxId: agent.sandboxId,
                 sandboxStatus: agent.sandboxStatus,
+                specialization: agent.specialization,
+                parentId: agent.parentId ?? null,
+                taskId: agent.taskId ?? null,
                 createdAt: agent.createdAt.toISOString(),
                 lastHeartbeat: agent.lastHeartbeat.toISOString(),
               },
@@ -237,6 +250,9 @@ export const createServer = async (): Promise<FastifyInstance> => {
             status: agent.status,
             sandboxId: agent.sandboxId,
             sandboxStatus: agent.sandboxStatus,
+            specialization: agent.specialization,
+            parentId: agent.parentId ?? null,
+            taskId: agent.taskId ?? null,
             createdAt: agent.createdAt.toISOString(),
             lastHeartbeat: agent.lastHeartbeat.toISOString(),
           },
@@ -331,6 +347,9 @@ export const createServer = async (): Promise<FastifyInstance> => {
               status: updated!.status,
               sandboxId: updated!.sandboxId,
               sandboxStatus: updated!.sandboxStatus,
+              specialization: updated!.specialization,
+              parentId: updated!.parentId ?? null,
+              taskId: updated!.taskId ?? null,
               createdAt: updated!.createdAt.toISOString(),
               lastHeartbeat: updated!.lastHeartbeat.toISOString(),
             },
@@ -363,6 +382,11 @@ export const createServer = async (): Promise<FastifyInstance> => {
               sandboxId: s.sandboxId,
               agentId: s.agentId,
               status: s.status,
+              metadata: {
+                agentType: s.metadata.agentType,
+                specialization: s.metadata.specialization,
+                createdBy: s.metadata.createdBy,
+              },
               lifecycle: {
                 createdAt: s.lifecycle.createdAt.toISOString(),
                 pausedAt: s.lifecycle.pausedAt?.toISOString() ?? null,
@@ -398,6 +422,11 @@ export const createServer = async (): Promise<FastifyInstance> => {
             sandboxId: sandbox.sandboxId,
             agentId: sandbox.agentId,
             status: sandbox.status,
+            metadata: {
+              agentType: sandbox.metadata.agentType,
+              specialization: sandbox.metadata.specialization,
+              createdBy: sandbox.metadata.createdBy,
+            },
             lifecycle: {
               createdAt: sandbox.lifecycle.createdAt.toISOString(),
               pausedAt: sandbox.lifecycle.pausedAt?.toISOString() ?? null,
