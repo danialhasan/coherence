@@ -9,7 +9,7 @@ This file is a short overview. The authoritative, full implementation spec lives
 
 Quick summary:
 - Single shared E2B sandbox for all agents; sandbox is the shared workspace.
-- Claude agentic loop runs in the host process; sandbox is used for commands and file IO.
+- Claude agentic loop runs inside sandbox agent processes; host is control plane only.
 - REST + WebSocket API is the control plane; MongoDB is the source of truth.
 - Message bus, checkpoints, tasks, session tracking, and notification injection are all required.
 

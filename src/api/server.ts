@@ -852,6 +852,177 @@ export const createServer = async (): Promise<FastifyInstance> => {
   return app
 }
 
+// ============================================================
+// SPECIALIST AUTO-START VIA MONGODB CHANGE STREAMS
+// ============================================================
+// Watches for new specialists and auto-starts them in sandbox
+//
+// Flow:
+// 1. Director spawns specialist (creates MongoDB record with status: 'idle')
+// 2. Director assigns task to specialist
+// 3. Change stream detects specialist has assigned task
+// 4. Server auto-starts specialist in sandbox
+// 5. Specialist completes task, director's waitForSpecialists sees result
+//
+
+// Track specialists being started to avoid double-starts
+const startingSpecialists = new Set<string>()
+
+/**
+ * Set up Change Stream to auto-start specialists when they get tasks assigned
+ */
+const setupSpecialistAutoStart = async () => {
+  const agents = await getAgentsCollection()
+  const tasks = await getTasksCollection()
+
+  // Watch for updates to agents collection (when task is assigned, agent status may change)
+  const changeStream = agents.watch([
+    {
+      $match: {
+        $or: [
+          // Watch for new specialist inserts
+          { operationType: 'insert', 'fullDocument.type': 'specialist' },
+          // Watch for updates to specialists (e.g., when sandboxStatus changes)
+          { operationType: 'update', 'fullDocument.type': 'specialist' },
+        ],
+      },
+    },
+  ], { fullDocument: 'updateLookup' })
+
+  console.log('[Server] Specialist auto-start Change Stream enabled')
+
+  changeStream.on('change', async (change) => {
+    try {
+      // Only process inserts for now (specialists are created with idle status)
+      if (change.operationType !== 'insert') return
+
+      const doc = change.fullDocument
+      if (!doc) return
+
+      // Skip if not a specialist
+      if (doc.type !== 'specialist') return
+
+      // Skip if already starting
+      if (startingSpecialists.has(doc.agentId)) return
+
+      // Skip if already has sandboxId (already started)
+      if (doc.sandboxId && doc.sandboxStatus !== 'none') return
+
+      // Skip if no parentId (not spawned by director)
+      if (!doc.parentId) return
+
+      console.log(`[Server] Detected new specialist: ${doc.agentId.slice(0, 8)} (${doc.specialization})`)
+
+      // Mark as starting
+      startingSpecialists.add(doc.agentId)
+
+      // Wait a moment for task assignment (director assigns task after spawning)
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      // Find assigned task
+      const task = await tasks.findOne({
+        assignedTo: doc.agentId,
+        status: { $in: ['pending', 'assigned'] },
+      })
+
+      if (!task) {
+        console.log(`[Server] No task found for specialist ${doc.agentId.slice(0, 8)}, waiting...`)
+        // Retry after a delay
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        const retryTask = await tasks.findOne({
+          assignedTo: doc.agentId,
+          status: { $in: ['pending', 'assigned'] },
+        })
+        if (!retryTask) {
+          console.log(`[Server] Still no task for specialist ${doc.agentId.slice(0, 8)}, skipping auto-start`)
+          startingSpecialists.delete(doc.agentId)
+          return
+        }
+      }
+
+      const assignedTask = task || await tasks.findOne({ assignedTo: doc.agentId })
+      if (!assignedTask) {
+        startingSpecialists.delete(doc.agentId)
+        return
+      }
+
+      console.log(`[Server] Auto-starting specialist ${doc.agentId.slice(0, 8)} for task: ${assignedTask.title.slice(0, 50)}...`)
+
+      // Emit status event
+      eventEmitter.emit('agent:status', {
+        agentId: doc.agentId,
+        status: 'working',
+        sandboxStatus: 'active',
+      })
+
+      // Register in sandbox
+      await sandboxManager.create({
+        agentId: doc.agentId,
+        agentType: 'specialist',
+        specialization: doc.specialization as 'researcher' | 'writer' | 'analyst' | 'general' | undefined,
+      })
+
+      // Run specialist with assigned task
+      const taskDescription = `${assignedTask.title}\n\n${assignedTask.description}`
+
+      try {
+        const result = await sandboxManager.runAgent(doc.agentId, taskDescription, doc.parentId)
+
+        // Update task with result
+        await tasks.updateOne(
+          { taskId: assignedTask.taskId },
+          { $set: { status: 'completed', result, updatedAt: new Date() } }
+        )
+
+        // Emit completion events
+        eventEmitter.emit('task:status', {
+          taskId: assignedTask.taskId,
+          status: 'completed',
+          timestamp: new Date().toISOString(),
+        })
+        eventEmitter.emit('agent:status', {
+          agentId: doc.agentId,
+          status: 'completed',
+          sandboxStatus: 'active',
+        })
+
+        console.log(`[Server] Specialist ${doc.agentId.slice(0, 8)} completed task: ${assignedTask.taskId.slice(0, 8)}`)
+
+      } catch (error) {
+        console.error(`[Server] Specialist ${doc.agentId.slice(0, 8)} failed:`, error)
+
+        await tasks.updateOne(
+          { taskId: assignedTask.taskId },
+          { $set: { status: 'failed', result: `Error: ${String(error)}`, updatedAt: new Date() } }
+        )
+
+        eventEmitter.emit('agent:status', {
+          agentId: doc.agentId,
+          status: 'error',
+          sandboxStatus: 'active',
+        })
+        eventEmitter.emit('task:status', {
+          taskId: assignedTask.taskId,
+          status: 'failed',
+          error: String(error),
+          timestamp: new Date().toISOString(),
+        })
+      }
+
+      startingSpecialists.delete(doc.agentId)
+
+    } catch (error) {
+      console.error('[Server] Error in specialist auto-start:', error)
+    }
+  })
+
+  changeStream.on('error', (error) => {
+    console.error('[Server] Change Stream error:', error)
+  })
+
+  return changeStream
+}
+
 /**
  * Start server
  */
@@ -859,6 +1030,9 @@ export const startServer = async (): Promise<FastifyInstance> => {
   // Connect to MongoDB
   await connectToMongo()
   await ensureIndexes()
+
+  // Set up specialist auto-start (MongoDB Change Stream)
+  await setupSpecialistAutoStart()
 
   // Create and start server
   const server = await createServer()
