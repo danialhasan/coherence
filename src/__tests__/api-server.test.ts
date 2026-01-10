@@ -83,6 +83,11 @@ vi.mock('../sandbox/manager.js', () => ({
     get: vi.fn().mockReturnValue(null),
     list: vi.fn().mockReturnValue([]),
     isRunning: vi.fn().mockReturnValue(false),
+    // Extended methods for full E2B integration
+    runAgent: vi.fn().mockResolvedValue('Task completed successfully'),
+    killSandbox: vi.fn().mockResolvedValue(undefined),
+    getSandboxId: vi.fn().mockReturnValue('sandbox-123'),
+    isSandboxReady: vi.fn().mockReturnValue(true),
   }),
 }))
 

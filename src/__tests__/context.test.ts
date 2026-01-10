@@ -4,15 +4,19 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 // MOCK SETUP
 // ============================================================
 
-const { mockMessagesCollection, mockCheckpointsCollection, mockAgentsCollection } = vi.hoisted(() => {
+const { mockMessagesCollection, mockCheckpointsCollection, mockAgentsCollection, mockMarkAsRead } = vi.hoisted(() => {
   const mockMessagesCollection = {
     find: vi.fn().mockReturnValue({
       sort: vi.fn().mockReturnThis(),
       limit: vi.fn().mockReturnThis(),
       toArray: vi.fn().mockResolvedValue([]),
     }),
+    findOne: vi.fn().mockResolvedValue(null),
     updateMany: vi.fn().mockResolvedValue({ modifiedCount: 0 }),
+    updateOne: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
   }
+
+  const mockMarkAsRead = vi.fn().mockResolvedValue(undefined)
 
   const mockCheckpointsCollection = {
     findOne: vi.fn().mockResolvedValue(null),
@@ -25,7 +29,7 @@ const { mockMessagesCollection, mockCheckpointsCollection, mockAgentsCollection 
     }),
   }
 
-  return { mockMessagesCollection, mockCheckpointsCollection, mockAgentsCollection }
+  return { mockMessagesCollection, mockCheckpointsCollection, mockAgentsCollection, mockMarkAsRead }
 })
 
 vi.mock('../db/mongo.js', async (importOriginal) => {
@@ -38,6 +42,14 @@ vi.mock('../db/mongo.js', async (importOriginal) => {
   }
 })
 
+vi.mock('../coordination/messages.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../coordination/messages.js')>()
+  return {
+    ...actual,
+    markAsRead: mockMarkAsRead,
+  }
+})
+
 // Import after mocks
 import {
   buildContextPacket,
@@ -46,6 +58,10 @@ import {
   getResumeContext,
   calculateTokenEstimate,
   createAgentSystemPrompt,
+  formatNotifications,
+  buildInboxSection,
+  toNotification,
+  readMessage,
 } from '../coordination/context.js'
 import type { Message, Checkpoint, Agent } from '../db/mongo.js'
 
@@ -420,6 +436,262 @@ describe('Context Management', () => {
       expect(prompt).toContain('sendMessage')
       expect(prompt).toContain('checkpoint')
       expect(prompt).toContain('createTask')
+    })
+
+    it('includes readMessage tool in documentation', () => {
+      const prompt = createAgentSystemPrompt({
+        agentId: '550e8400-e29b-41d4-a716-446655440010',
+        agentType: 'director',
+      })
+
+      expect(prompt).toContain('readMessage')
+      expect(prompt).toContain('full content')
+    })
+
+    it('includes inbox notifications when unreadMessages provided', () => {
+      const mockMessages: Message[] = [
+        {
+          messageId: 'msg-1',
+          fromAgent: 'researcher-001',
+          toAgent: 'director-001',
+          content: 'Found 3 MongoDB coordination patterns in the documentation',
+          type: 'result',
+          threadId: 'thread-1',
+          priority: 'high',
+          readAt: null,
+          createdAt: new Date(),
+        },
+      ]
+
+      const prompt = createAgentSystemPrompt({
+        agentId: '550e8400-e29b-41d4-a716-446655440011',
+        agentType: 'director',
+        unreadMessages: mockMessages,
+      })
+
+      expect(prompt).toContain('Inbox (1 unread)')
+      expect(prompt).toContain('[MAIL]')
+      expect(prompt).toContain('msg-1')
+      expect(prompt).toContain('Preview:')
+      expect(prompt).toContain('readMessage(messageId)')
+    })
+  })
+
+  // ============================================================
+  // NOTIFICATION INJECTION (S7b)
+  // ============================================================
+
+  describe('formatNotifications()', () => {
+    it('returns empty message when no messages', () => {
+      const result = formatNotifications([])
+      expect(result).toBe('No unread messages.')
+    })
+
+    it('formats single message as notification', () => {
+      const messages: Message[] = [
+        {
+          messageId: 'msg-123',
+          fromAgent: 'researcher-001',
+          toAgent: 'director-001',
+          content: 'Found 3 sources on MongoDB patterns',
+          type: 'result',
+          threadId: 'thread-1',
+          priority: 'normal',
+          readAt: null,
+          createdAt: new Date(),
+        },
+      ]
+
+      const result = formatNotifications(messages)
+
+      expect(result).toContain('[MAIL]')
+      expect(result).toContain('From: research')
+      expect(result).toContain('Type: result')
+      expect(result).toContain('ID: msg-123')
+      expect(result).toContain('Preview: "Found 3 sources')
+    })
+
+    it('truncates long content to 50 chars', () => {
+      const messages: Message[] = [
+        {
+          messageId: 'msg-456',
+          fromAgent: 'writer-001',
+          toAgent: 'director-001',
+          content: 'This is a very long message that should definitely be truncated to 50 characters for the preview',
+          type: 'status',
+          threadId: 'thread-1',
+          priority: 'normal',
+          readAt: null,
+          createdAt: new Date(),
+        },
+      ]
+
+      const result = formatNotifications(messages)
+
+      // The preview should be truncated at 50 chars + "..."
+      expect(result).toContain('This is a very long message that should definitely...')
+      expect(result).not.toContain('truncated to 50 characters for the preview')
+    })
+
+    it('marks high priority messages with [HIGH]', () => {
+      const messages: Message[] = [
+        {
+          messageId: 'msg-789',
+          fromAgent: 'director-001',
+          toAgent: 'specialist-001',
+          content: 'Urgent task',
+          type: 'task',
+          threadId: 'thread-1',
+          priority: 'high',
+          readAt: null,
+          createdAt: new Date(),
+        },
+      ]
+
+      const result = formatNotifications(messages)
+
+      expect(result).toContain('[HIGH]')
+    })
+
+    it('formats multiple messages separated by double newlines', () => {
+      const messages: Message[] = [
+        {
+          messageId: 'msg-1',
+          fromAgent: 'agent-001',
+          toAgent: 'agent-002',
+          content: 'First message',
+          type: 'task',
+          threadId: 'thread-1',
+          priority: 'normal',
+          readAt: null,
+          createdAt: new Date(),
+        },
+        {
+          messageId: 'msg-2',
+          fromAgent: 'agent-003',
+          toAgent: 'agent-002',
+          content: 'Second message',
+          type: 'result',
+          threadId: 'thread-1',
+          priority: 'normal',
+          readAt: null,
+          createdAt: new Date(),
+        },
+      ]
+
+      const result = formatNotifications(messages)
+
+      expect(result).toContain('msg-1')
+      expect(result).toContain('msg-2')
+      expect(result.split('\n\n').length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  describe('toNotification()', () => {
+    it('converts message to lightweight notification', () => {
+      const message: Message = {
+        messageId: 'msg-abc',
+        fromAgent: 'specialist-researcher-001',
+        toAgent: 'director-001',
+        content: 'Research complete with findings',
+        type: 'result',
+        threadId: 'thread-1',
+        priority: 'high',
+        readAt: null,
+        createdAt: new Date('2026-01-10T10:00:00Z'),
+      }
+
+      const notification = toNotification(message)
+
+      expect(notification.messageId).toBe('msg-abc')
+      expect(notification.fromAgent).toBe('specialist-researcher-001')
+      expect(notification.type).toBe('result')
+      expect(notification.priority).toBe('high')
+      expect(notification.preview).toBe('Research complete with findings')
+      expect(notification.createdAt).toEqual(message.createdAt)
+    })
+
+    it('truncates preview for long content', () => {
+      const message: Message = {
+        messageId: 'msg-xyz',
+        fromAgent: 'writer-001',
+        toAgent: 'director-001',
+        content: 'This is a very long message content that exceeds fifty characters limit',
+        type: 'status',
+        threadId: 'thread-1',
+        priority: 'normal',
+        readAt: null,
+        createdAt: new Date(),
+      }
+
+      const notification = toNotification(message)
+
+      // First 50 chars + "..."
+      expect(notification.preview).toBe('This is a very long message content that exceeds f...')
+      expect(notification.preview.length).toBe(53) // 50 chars + "..."
+    })
+  })
+
+  describe('buildInboxSection()', () => {
+    it('builds inbox section with header and notifications', () => {
+      const messages: Message[] = [
+        {
+          messageId: 'msg-100',
+          fromAgent: 'agent-001',
+          toAgent: 'agent-002',
+          content: 'Test message',
+          type: 'task',
+          threadId: 'thread-1',
+          priority: 'normal',
+          readAt: null,
+          createdAt: new Date(),
+        },
+      ]
+
+      const result = buildInboxSection(messages)
+
+      expect(result).toContain('## Inbox (1 unread)')
+      expect(result).toContain('[MAIL]')
+      expect(result).toContain('readMessage(messageId)')
+    })
+
+    it('shows empty inbox message when no messages', () => {
+      const result = buildInboxSection([])
+
+      expect(result).toContain('## Inbox (0 unread)')
+      expect(result).toContain('No unread messages.')
+    })
+  })
+
+  describe('readMessage()', () => {
+    it('fetches full message and marks as read', async () => {
+      const mockMessage: Message = {
+        messageId: 'msg-read-1',
+        fromAgent: 'researcher-001',
+        toAgent: 'director-001',
+        content: 'Full message content that was not visible in preview',
+        type: 'result',
+        threadId: 'thread-1',
+        priority: 'normal',
+        readAt: null,
+        createdAt: new Date(),
+      }
+      mockMessagesCollection.findOne.mockResolvedValueOnce(mockMessage)
+
+      const result = await readMessage('msg-read-1')
+
+      expect(result).not.toBeNull()
+      expect(result?.content).toBe('Full message content that was not visible in preview')
+      expect(mockMarkAsRead).toHaveBeenCalledWith('msg-read-1')
+    })
+
+    it('returns null for non-existent message', async () => {
+      mockMessagesCollection.findOne.mockResolvedValueOnce(null)
+
+      const result = await readMessage('non-existent-msg')
+
+      expect(result).toBeNull()
+      expect(mockMarkAsRead).not.toHaveBeenCalled()
     })
   })
 })

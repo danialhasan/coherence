@@ -6,6 +6,7 @@ import {
   Checkpoint,
   Agent,
 } from '../db/mongo.js'
+import { markAsRead } from './messages.js'
 
 // ============================================================
 // CONTEXT MANAGEMENT — Build context packets for Claude SDK
@@ -173,6 +174,7 @@ export type SystemPromptInput = {
   agentType: AgentType
   specialization?: Specialization
   resumeContext?: string
+  unreadMessages?: Message[]
 }
 
 /**
@@ -218,13 +220,22 @@ export const createAgentSystemPrompt = (input: SystemPromptInput): string => {
   sections.push('')
   sections.push('You have access to the following coordination tools:')
   sections.push('')
-  sections.push('- `checkInbox()` - Get unread messages from other agents')
+  sections.push('- `checkInbox()` - Get unread messages from other agents (returns lightweight previews)')
+  sections.push('- `readMessage(messageId)` - Get full content of a specific message')
   sections.push('- `sendMessage(toAgentId, content, type)` - Send message to another agent')
   sections.push('- `checkpoint(summary, resumePointer)` - Save your state for potential resume')
   sections.push('- `createTask(title, description)` - Create a new work unit')
   sections.push('- `assignTask(taskId, agentId)` - Assign task to a specialist')
   sections.push('- `completeTask(taskId, result)` - Mark task as completed with result')
   sections.push('')
+
+  // Inbox notifications (S7b: lightweight previews)
+  if (input.unreadMessages && input.unreadMessages.length > 0) {
+    sections.push('---')
+    sections.push('')
+    sections.push(buildInboxSection(input.unreadMessages))
+    sections.push('')
+  }
 
   // Resume context if provided
   if (input.resumeContext) {
@@ -239,7 +250,8 @@ export const createAgentSystemPrompt = (input: SystemPromptInput): string => {
 }
 
 /**
- * Format messages for context injection
+ * Format messages for context injection (FULL content)
+ * @deprecated Use formatNotifications() for lightweight previews instead
  */
 export const formatMessagesForContext = (messages: Message[]): string => {
   if (messages.length === 0) {
@@ -252,6 +264,105 @@ export const formatMessagesForContext = (messages: Message[]): string => {
   })
 
   return `**Inbox (${messages.length} unread):**\n${formatted.join('\n')}`
+}
+
+// ============================================================
+// NOTIFICATION INJECTION (S7b) — Lightweight message previews
+// ============================================================
+
+const PREVIEW_LENGTH = 50
+
+/**
+ * Lightweight notification for a single message
+ */
+export type MessageNotification = {
+  messageId: string
+  fromAgent: string
+  type: string
+  priority: string
+  preview: string
+  createdAt: Date
+}
+
+/**
+ * Convert message to lightweight notification (preview only)
+ */
+export const toNotification = (msg: Message): MessageNotification => {
+  const preview =
+    msg.content.length > PREVIEW_LENGTH
+      ? `${msg.content.slice(0, PREVIEW_LENGTH)}...`
+      : msg.content
+
+  return {
+    messageId: msg.messageId,
+    fromAgent: msg.fromAgent,
+    type: msg.type,
+    priority: msg.priority,
+    preview,
+    createdAt: msg.createdAt,
+  }
+}
+
+/**
+ * Format messages as lightweight notifications (S7b pattern)
+ * Full content retrieved via readMessage() tool
+ *
+ * Example output:
+ * [MAIL] From: research1 | Type: result | ID: msg-42 [HIGH]
+ *   Preview: "Found 3 MongoDB coordination patterns..."
+ */
+export const formatNotifications = (messages: Message[]): string => {
+  if (messages.length === 0) {
+    return 'No unread messages.'
+  }
+
+  return messages
+    .map((msg) => {
+      const preview =
+        msg.content.length > PREVIEW_LENGTH
+          ? `${msg.content.slice(0, PREVIEW_LENGTH)}...`
+          : msg.content
+      const priority = msg.priority === 'high' ? ' [HIGH]' : ''
+
+      return `[MAIL] From: ${msg.fromAgent.slice(0, 8)} | Type: ${msg.type} | ID: ${msg.messageId}${priority}\n  Preview: "${preview}"`
+    })
+    .join('\n\n')
+}
+
+/**
+ * Build inbox section for system prompt using lightweight notifications
+ */
+export const buildInboxSection = (messages: Message[]): string => {
+  const sections: string[] = []
+
+  sections.push(`## Inbox (${messages.length} unread)`)
+  sections.push('')
+
+  if (messages.length === 0) {
+    sections.push('No unread messages.')
+  } else {
+    sections.push(formatNotifications(messages))
+    sections.push('')
+    sections.push('Use `readMessage(messageId)` to get full content of any message.')
+  }
+
+  return sections.join('\n')
+}
+
+/**
+ * Read full message content by ID and mark as read
+ * This is the function agents call via the readMessage tool
+ */
+export const readMessage = async (messageId: string): Promise<Message | null> => {
+  const messages = await getMessagesCollection()
+  const message = await messages.findOne({ messageId })
+
+  if (message) {
+    // Mark as read when fetching full content
+    await markAsRead(messageId)
+  }
+
+  return message
 }
 
 /**

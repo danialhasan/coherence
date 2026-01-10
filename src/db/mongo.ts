@@ -17,7 +17,15 @@ export const AgentSchema = z.object({
 
   parentId: z.string().uuid().nullable(),
   taskId: z.string().uuid().nullable(),
-  sessionId: z.string().optional(),     // Claude SDK session ID
+  sessionId: z.string().optional(),     // Claude SDK session ID for resume support
+
+  // Token usage tracking (S7a: Session Tracking)
+  tokenUsage: z.object({
+    totalInputTokens: z.number().default(0),
+    totalOutputTokens: z.number().default(0),
+    lastUpdated: z.date().optional(),
+  }).optional(),
+
   createdAt: z.date(),
   lastHeartbeat: z.date(),
 })
@@ -196,8 +204,8 @@ export const ensureIndexes = async (): Promise<void> => {
   await tasks.createIndex({ taskId: 1 }, { unique: true })
   await tasks.createIndex({ assignedTo: 1, status: 1 })
 
-  // Sandbox tracking indexes
-  await sandboxTracking.createIndex({ sandboxId: 1 }, { unique: true })
+  // Sandbox tracking indexes - compound unique allows multiple agents per sandbox
+  await sandboxTracking.createIndex({ sandboxId: 1, agentId: 1 }, { unique: true })
   await sandboxTracking.createIndex({ agentId: 1 })
   await sandboxTracking.createIndex({ status: 1, 'lifecycle.lastHeartbeat': -1 })
   await sandboxTracking.createIndex({ 'lifecycle.createdAt': -1 })

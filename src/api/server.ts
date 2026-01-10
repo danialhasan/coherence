@@ -4,23 +4,42 @@ import websocket from '@fastify/websocket'
 import { initServer } from '@ts-rest/fastify'
 import { config } from '../config.js'
 import { contract } from '../contracts/api.contract.js'
-import { connectToMongo, ensureIndexes, getAgentsCollection, getTasksCollection, getMessagesCollection, getSandboxTrackingCollection } from '../db/mongo.js'
-import { createDirector, spawnSpecialist } from '../agents/director.js'
+import { connectToMongo, ensureIndexes, getAgentsCollection, getTasksCollection, getMessagesCollection, getSandboxTrackingCollection, getCheckpointsCollection } from '../db/mongo.js'
+import { createDirector, spawnSpecialist, orchestrate } from '../agents/director.js'
 import { createTask, assignTask, getTask } from '../coordination/tasks.js'
-import { createSandboxManager } from '../sandbox/manager.js'
+import { createSandboxManager, type ExtendedSandboxManager, type OutputHandler } from '../sandbox/manager.js'
 import { getGlobalEmitter, formatWebSocketMessage, type EventType } from './websocket.js'
+import { buildContextPacket } from '../coordination/context.js'
 
 // ============================================================
 // FASTIFY SERVER — REST API + WebSocket for Squad Lite
 // ============================================================
+//
+// NEW ARCHITECTURE (Full E2B Integration):
+// - All agents run INSIDE a single E2B sandbox
+// - Claude SDK runs inside the sandbox (not main process)
+// - UI is a window into the sandbox (streaming stdout/stderr)
+// - Kill agent = kill process (sandbox stays)
+// - Kill sandbox = kill all agents
+//
 
 let serverInstance: FastifyInstance | null = null
 
-// Global sandbox manager
-const sandboxManager = createSandboxManager()
-
 // Global event emitter for WebSocket broadcasts
 const eventEmitter = getGlobalEmitter()
+
+// Output handler that streams sandbox output to WebSocket
+const outputHandler: OutputHandler = (agentId, stream, data) => {
+  eventEmitter.emit('agent:output', {
+    agentId,
+    stream,
+    content: data,  // Fixed: was 'output', contract expects 'content'
+    timestamp: new Date().toISOString(),
+  })
+}
+
+// Global sandbox manager with output streaming
+const sandboxManager = createSandboxManager(outputHandler) as ExtendedSandboxManager
 
 /**
  * Create Fastify server with ts-rest routes + WebSocket
@@ -93,11 +112,11 @@ export const createServer = async (): Promise<FastifyInstance> => {
             const context = await createDirector()
             const agent = context.agent
 
-            // Emit WebSocket event
+            // Emit WebSocket event (per FULL-SPEC.md: agentType, sandboxId)
             eventEmitter.emit('agent:created', {
               agentId: agent.agentId,
-              type: agent.type,
-              timestamp: new Date().toISOString(),
+              agentType: agent.type,
+              sandboxId: agent.sandboxId,
             })
 
             return {
@@ -124,9 +143,8 @@ export const createServer = async (): Promise<FastifyInstance> => {
 
             eventEmitter.emit('agent:created', {
               agentId: agent.agentId,
-              type: agent.type,
-              specialization: context.specialization,
-              timestamp: new Date().toISOString(),
+              agentType: agent.type,
+              sandboxId: agent.sandboxId,
             })
 
             return {
@@ -205,6 +223,63 @@ export const createServer = async (): Promise<FastifyInstance> => {
             title: task.title,
             assignedTo: params.id,
             timestamp: new Date().toISOString(),
+          })
+
+          // FULL E2B INTEGRATION:
+          // Run agent inside E2B sandbox with Claude SDK
+          // Output is streamed to WebSocket via outputHandler
+          setImmediate(async () => {
+            try {
+              console.log(`[Server] Starting E2B agent execution for task: ${task.taskId}`)
+
+              // Update agent status (per FULL-SPEC.md: include sandboxStatus)
+              eventEmitter.emit('agent:status', { agentId: params.id, status: 'working', sandboxStatus: 'active' })
+
+              // Register agent in sandbox
+              await sandboxManager.create({
+                agentId: params.id,
+                agentType: agent.type as 'director' | 'specialist',
+                specialization: agent.specialization as 'researcher' | 'writer' | 'analyst' | 'general' | undefined,
+              })
+
+              // Run agent inside E2B sandbox
+              const result = await sandboxManager.runAgent(params.id, body.task)
+
+              // Update task with result
+              const tasks = await getTasksCollection()
+              await tasks.updateOne(
+                { taskId: task.taskId },
+                { $set: { status: 'completed', result, updatedAt: new Date() } }
+              )
+
+              // Emit completion events
+              eventEmitter.emit('task:status', {
+                taskId: task.taskId,
+                status: 'completed',
+                timestamp: new Date().toISOString(),
+              })
+              eventEmitter.emit('agent:status', { agentId: params.id, status: 'completed', sandboxStatus: 'active' })
+
+              console.log(`[Server] Agent execution completed for task: ${task.taskId}`)
+
+            } catch (error) {
+              console.error('[Server] Agent execution failed:', error)
+
+              // Update task status in MongoDB with error details
+              const tasksCollection = await getTasksCollection()
+              await tasksCollection.updateOne(
+                { taskId: task.taskId },
+                { $set: { status: 'failed', result: `Error: ${String(error)}`, updatedAt: new Date() } }
+              )
+
+              eventEmitter.emit('agent:status', { agentId: params.id, status: 'error', sandboxStatus: 'active' })
+              eventEmitter.emit('task:status', {
+                taskId: task.taskId,
+                status: 'failed',
+                error: String(error),
+                timestamp: new Date().toISOString(),
+              })
+            }
           })
 
           return {
@@ -336,7 +411,7 @@ export const createServer = async (): Promise<FastifyInstance> => {
           eventEmitter.emit('agent:status', {
             agentId: params.id,
             status: 'idle',
-            timestamp: new Date().toISOString(),
+            sandboxStatus: updated?.sandboxStatus ?? 'none',
           })
 
           return {
@@ -658,6 +733,67 @@ export const createServer = async (): Promise<FastifyInstance> => {
 
   // Register ts-rest router
   app.register(s.plugin(router))
+
+  // ============================================================
+  // CUSTOM ROUTES (not in ts-rest contract)
+  // ============================================================
+
+  /**
+   * Kill entire sandbox (all agents)
+   * DELETE /api/sandbox
+   */
+  app.delete('/api/sandbox', async () => {
+    try {
+      const sandboxId = sandboxManager.getSandboxId()
+
+      if (!sandboxId) {
+        return {
+          status: 'no_sandbox',
+          message: 'No active sandbox',
+        }
+      }
+
+      await sandboxManager.killSandbox()
+
+      eventEmitter.emit('sandbox:event', {
+        sandboxId,
+        event: 'killed',
+        allAgents: true,
+        timestamp: new Date().toISOString(),
+      })
+
+      return {
+        status: 'killed',
+        sandboxId,
+        message: 'Sandbox and all agents terminated',
+      }
+    } catch (error) {
+      return {
+        status: 'error',
+        message: String(error),
+      }
+    }
+  })
+
+  /**
+   * Get sandbox status
+   * GET /api/sandbox/status
+   */
+  app.get('/api/sandbox/status', async () => {
+    const sandboxId = sandboxManager.getSandboxId()
+    const isReady = sandboxManager.isSandboxReady()
+    const agents = sandboxManager.list()
+
+    return {
+      sandboxId,
+      isReady,
+      agentCount: agents.length,
+      agents: agents.map(a => ({
+        agentId: a.agentId,
+        status: a.status,
+      })),
+    }
+  })
 
   // ============================================================
   // WEBSOCKET HANDLER

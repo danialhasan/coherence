@@ -7,7 +7,7 @@ import { SandboxNotFoundError, SandboxCreationError } from '../contracts/sandbox
 // ============================================================
 
 // Mock Sandbox class (vi.hoisted ensures variables are available)
-const { mockSandboxCreate, mockSandboxConnect, createMockSandbox, mockCollection } = vi.hoisted(() => {
+const { mockSandboxCreate, mockSandboxConnect, createMockSandbox, mockCollection, mockAgentsCollection } = vi.hoisted(() => {
   const mockSandboxCreate = vi.fn()
   const mockSandboxConnect = vi.fn()
 
@@ -26,12 +26,19 @@ const { mockSandboxCreate, mockSandboxConnect, createMockSandbox, mockCollection
           if (cmd.includes('cat')) {
             opts.onStdout('test\n')
           }
+          if (cmd.includes('npm install')) {
+            opts.onStdout('[npm] Installing dependencies...\n')
+          }
         }
         if (opts?.onStderr && cmd.includes('>&2')) {
           opts.onStderr('error\n')
         }
         return { exitCode: 0 }
       }),
+    },
+    files: {
+      write: vi.fn().mockResolvedValue(undefined),
+      read: vi.fn().mockResolvedValue(''),
     },
     betaPause: vi.fn().mockResolvedValue(true),
     kill: vi.fn().mockResolvedValue(undefined),
@@ -42,7 +49,13 @@ const { mockSandboxCreate, mockSandboxConnect, createMockSandbox, mockCollection
     findOne: vi.fn().mockResolvedValue(null),
   }
 
-  return { mockSandboxCreate, mockSandboxConnect, createMockSandbox, mockCollection }
+  // Mock agents collection for sandboxId update
+  const mockAgentsCollection = {
+    updateOne: vi.fn().mockResolvedValue({ acknowledged: true }),
+    findOne: vi.fn().mockResolvedValue(null),
+  }
+
+  return { mockSandboxCreate, mockSandboxConnect, createMockSandbox, mockCollection, mockAgentsCollection }
 })
 
 vi.mock('@e2b/sdk', () => ({
@@ -66,6 +79,7 @@ vi.mock('../config.js', () => ({
 
 vi.mock('../db/mongo.js', () => ({
   getSandboxTrackingCollection: vi.fn().mockResolvedValue(mockCollection),
+  getAgentsCollection: vi.fn().mockResolvedValue(mockAgentsCollection),
 }))
 
 // Import after mocks
@@ -174,25 +188,43 @@ describe('SandboxManager', () => {
       expect(call[1].$set).toHaveProperty('status', 'active')
     })
 
-    it('calls E2B Sandbox.create with correct parameters', async () => {
-      const config: SandboxConfig = {
+    it('calls E2B Sandbox.create once for shared sandbox (new architecture)', async () => {
+      const config1: SandboxConfig = {
         agentId: '550e8400-e29b-41d4-a716-446655440003',
         agentType: 'specialist',
         specialization: 'analyst',
         timeoutMs: 5 * 60 * 1000,
       }
+      const config2: SandboxConfig = {
+        agentId: '550e8400-e29b-41d4-a716-446655440004',
+        agentType: 'director',
+      }
 
-      await manager.create(config)
+      await manager.create(config1)
+      await manager.create(config2)
 
+      // New architecture: single shared sandbox, Sandbox.create called once
+      expect(mockSandboxCreate).toHaveBeenCalledTimes(1)
       expect(mockSandboxCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           apiKey: 'mock-e2b-api-key',
-          timeoutMs: 5 * 60 * 1000,
-          metadata: expect.objectContaining({
-            agentId: config.agentId,
-            agentType: config.agentType,
-          }),
+          timeoutMs: 10 * 60 * 1000, // Default 10 minutes for shared sandbox
         })
+      )
+    })
+
+    it('updates agent document with sandboxId and sandboxStatus after creation', async () => {
+      const config: SandboxConfig = {
+        agentId: '550e8400-e29b-41d4-a716-446655440005',
+        agentType: 'director',
+      }
+
+      const instance = await manager.create(config)
+
+      // Verify agent document was updated with sandboxId and sandboxStatus
+      expect(mockAgentsCollection.updateOne).toHaveBeenCalledWith(
+        { agentId: config.agentId },
+        { $set: { sandboxId: instance.sandboxId, sandboxStatus: 'active' } }
       )
     })
   })
@@ -401,7 +433,9 @@ describe('SandboxManager', () => {
       expect(instance).toBeUndefined()
     })
 
-    it('calls E2B sandbox.kill()', async () => {
+    it('kills agent process but NOT sandbox (new architecture)', async () => {
+      // In the new architecture, kill(agentId) kills the agent process
+      // but keeps the sandbox alive for other agents
       const config: SandboxConfig = {
         agentId: '550e8400-e29b-41d4-a716-446655440041',
         agentType: 'director',
@@ -410,7 +444,10 @@ describe('SandboxManager', () => {
 
       await manager.kill(config.agentId)
 
-      expect(instance.sandbox.kill).toHaveBeenCalled()
+      // Sandbox should NOT be killed (single shared sandbox)
+      // Agent is removed from manager but sandbox stays alive
+      expect(instance.sandbox.kill).not.toHaveBeenCalled()
+      expect(manager.get(config.agentId)).toBeUndefined()
     })
 
     it('syncs killed status to MongoDB', async () => {
