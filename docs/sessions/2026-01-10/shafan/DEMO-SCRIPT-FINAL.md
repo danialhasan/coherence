@@ -1,4 +1,4 @@
-# Squad Lite Demo Script (Final)
+# Coherence Demo Script (Final)
 
 **Event:** MongoDB Agentic Orchestration Hackathon
 **Date:** January 10, 2026 - Judging at 5 PM
@@ -33,7 +33,7 @@
 >
 > **If you've ever tried to get two agents to collaborate on a task, you know - it's chaos. One doesn't know what the other is doing. There's no shared state. No coordination layer.**
 >
-> **We built Squad Lite to change that."**
+> **We built Coherence to change that."**
 
 **[30 seconds]**
 
@@ -43,7 +43,7 @@
 
 **[SCREEN: Point to Run Status Bar with track pills]**
 
-> **"Squad Lite proves two things:**
+> **"Coherence proves two things:**
 >
 > **One: Prolonged Coordination."**
 >
@@ -159,7 +159,7 @@
 
 > **MongoDB is that layer.**
 >
-> **Squad Lite. Agents that coordinate. Agents that persist. Agents that actually work together.**
+> **Coherence. Agents that coordinate. Agents that persist. Agents that actually work together.**
 >
 > **Thank you."**
 
