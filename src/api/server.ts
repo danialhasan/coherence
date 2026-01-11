@@ -83,7 +83,8 @@ export const createServer = async (): Promise<FastifyInstance> => {
     agents: {
       list: async () => {
         const agents = await getAgentsCollection()
-        const agentList = await agents.find().toArray()
+        // Sort by createdAt DESC so newest agents (specialists) appear first
+        const agentList = await agents.find().sort({ createdAt: -1 }).toArray()
 
         return {
           status: 200 as const,

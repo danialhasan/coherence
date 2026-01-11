@@ -26,6 +26,7 @@ const error = ref<string | null>(null)
 const mockMode = isMockMode()
 const messageMap = new Map<string, Message>()
 let messagePoller: ReturnType<typeof setInterval> | null = null
+const selectedAgentId = ref<string | null>(null)
 
 // ============================================================
 // TOAST SYSTEM
@@ -157,7 +158,9 @@ const handleWsEvent = (event: WsEvent) => {
         timestamp: new Date().toISOString(),
       }
       messageMap.set(msg.messageId, msg)
-      messages.value = Array.from(messageMap.values())
+      messages.value = Array.from(messageMap.values()).sort((a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      )
       break
     }
 
@@ -246,6 +249,7 @@ const handleReset = () => {
   messageMap.clear()
   checkpoints.value = []
   outputs.value = []
+  selectedAgentId.value = null
   error.value = null
   if (mockMode) {
     resetMockState()
@@ -271,13 +275,30 @@ const loadMessages = async () => {
       timestamp: msg.createdAt,
     })
   }
-  messages.value = Array.from(messageMap.values())
+  messages.value = Array.from(messageMap.values()).sort((a, b) =>
+    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  )
 }
 
 const loadAgents = async () => {
   const res = await api.agents.list()
   agents.value = res.agents
 }
+
+const handleSelectAgent = (agentId: string) => {
+  selectedAgentId.value = agentId
+}
+
+const clearFocus = () => {
+  selectedAgentId.value = null
+}
+
+const focusedMessages = computed(() => {
+  if (!selectedAgentId.value) return messages.value
+  return messages.value.filter(
+    (m) => m.fromAgent === selectedAgentId.value || m.toAgent === selectedAgentId.value
+  )
+})
 
 // ============================================================
 // LIFECYCLE
@@ -375,6 +396,8 @@ onUnmounted(() => {
             v-for="agent in agents"
             :key="agent.agentId"
             :agent="agent"
+            :selected="agent.agentId === selectedAgentId"
+            @select="handleSelectAgent"
             @kill="handleKill"
             @restart="handleRestart"
           />
@@ -387,10 +410,23 @@ onUnmounted(() => {
       <!-- Center Column: Output (main focus) -->
       <section class="output-panel">
         <div class="panel-header">
-          <h2>Output</h2>
-          <span class="panel-count">{{ outputs.length }} lines</span>
+          <div class="panel-title">
+            <h2>{{ selectedAgentId ? 'Conversation' : 'Output' }}</h2>
+            <span v-if="selectedAgentId" class="panel-sub mono">
+              {{ selectedAgentId.slice(0, 8) }}
+            </span>
+          </div>
+          <div class="panel-actions">
+            <button v-if="selectedAgentId" class="btn-link" @click="clearFocus">
+              Clear focus
+            </button>
+            <span v-else class="panel-count">{{ outputs.length }} lines</span>
+          </div>
         </div>
-        <OutputPanel :outputs="outputs" />
+        <div v-if="selectedAgentId" class="focused-feed">
+          <MessageFeed :messages="focusedMessages" />
+        </div>
+        <OutputPanel v-else :outputs="outputs" />
       </section>
 
       <!-- Right Column: Messages + Checkpoints -->
@@ -705,11 +741,46 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+.panel-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel-sub {
+  font-size: 0.75rem;
+  color: var(--ctp-overlay1);
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-link {
+  background: transparent;
+  border: 0;
+  color: var(--ctp-sky);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.btn-link:hover {
+  color: var(--ctp-blue);
+}
+
 .output-panel > :deep(.output-panel) {
   flex: 1;
   min-height: 0;
   border: none;
   border-radius: 0;
+}
+
+.focused-feed {
+  flex: 1;
+  min-height: 0;
 }
 
 /* Right Column: Feeds Panel */

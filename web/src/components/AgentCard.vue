@@ -4,11 +4,13 @@ import type { AgentResponse, AgentStatus, SandboxStatus } from '@/types'
 
 const props = defineProps<{
   agent: AgentResponse
+  selected?: boolean
 }>()
 
 const emit = defineEmits<{
   kill: [agentId: string]
   restart: [agentId: string]
+  select: [agentId: string]
 }>()
 
 // Truncate UUID for display
@@ -58,10 +60,16 @@ const canRestart = computed(() =>
 
 const handleKill = () => emit('kill', props.agent.agentId)
 const handleRestart = () => emit('restart', props.agent.agentId)
+const handleSelect = () => emit('select', props.agent.agentId)
 </script>
 
 <template>
-  <div class="agent-card" :data-type="agent.type">
+  <div
+    class="agent-card"
+    :class="{ selected: !!selected }"
+    :data-type="agent.type"
+    @click="handleSelect"
+  >
     <!-- Header -->
     <div class="card-header">
       <div class="agent-info">
@@ -99,14 +107,14 @@ const handleRestart = () => emit('restart', props.agent.agentId)
       <button
         v-if="canKill"
         class="btn btn-kill"
-        @click="handleKill"
+        @click.stop="handleKill"
       >
         Kill
       </button>
       <button
         v-if="canRestart"
         class="btn btn-restart"
-        @click="handleRestart"
+        @click.stop="handleRestart"
       >
         Restart
       </button>
@@ -122,11 +130,17 @@ const handleRestart = () => emit('restart', props.agent.agentId)
   padding: 10px 12px;
   transition: border-color 0.15s ease, background 0.15s ease;
   animation: fadeInUp 0.2s ease-out;
+  cursor: pointer;
 }
 
 .agent-card:hover {
   border-color: var(--ctp-surface1);
   background: var(--ctp-base);
+}
+
+.agent-card.selected {
+  border-color: var(--ctp-blue);
+  box-shadow: 0 0 0 1px var(--ctp-blue);
 }
 
 /* Agent type accent borders */
