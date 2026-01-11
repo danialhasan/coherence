@@ -8,6 +8,7 @@ import type {
   WsEvent,
   Specialization,
   MessageType,
+  MessageResponse,
 } from '@/types'
 
 // ============================================================
@@ -15,6 +16,7 @@ import type {
 // ============================================================
 
 const mockAgents = new Map<string, AgentResponse>()
+const mockMessages: MessageResponse[] = []
 let eventCallback: ((event: WsEvent) => void) | null = null
 
 // Generate short UUID-like IDs
@@ -27,6 +29,11 @@ const now = () => new Date().toISOString()
 
 export const mockApi = {
   agents: {
+    list: async (): Promise<{ agents: AgentResponse[] }> => {
+      await delay(100)
+      return { agents: Array.from(mockAgents.values()) }
+    },
+
     spawn: async (): Promise<AgentResponse> => {
       // Simulate network delay
       await delay(300)
@@ -106,12 +113,6 @@ export const mockApi = {
           checkpointId,
           agentId,
           phase: 'killed',
-          summary: {
-            goal: 'Task in progress',
-            completed: ['Started processing'],
-            pending: ['Continue from checkpoint'],
-            decisions: ['Will resume on restart'],
-          },
           timestamp: now(),
         },
       })
@@ -165,6 +166,13 @@ export const mockApi = {
       })
 
       return agent
+    },
+  },
+
+  messages: {
+    list: async (limit = 50): Promise<{ messages: MessageResponse[] }> => {
+      await delay(100)
+      return { messages: mockMessages.slice(0, limit) }
     },
   },
 
@@ -299,11 +307,19 @@ const runDemoFlow = async (directorId: string, task: string) => {
         fromAgent: directorId,
         toAgent: specialist.agentId,
         messageType: 'task' as MessageType,
-        content: `Research ${specialist.specialization} aspects of the topic`,
-        threadId,
-        priority: 'normal',
         preview: `Research ${specialist.specialization} aspects...`,
       },
+    })
+
+    mockMessages.unshift({
+      messageId,
+      fromAgent: directorId,
+      toAgent: specialist.agentId,
+      content: `Research ${specialist.specialization} aspects of the topic`,
+      type: 'task',
+      threadId,
+      createdAt: now(),
+      read: false,
     })
 
     await delay(300)
@@ -356,12 +372,6 @@ const runDemoFlow = async (directorId: string, task: string) => {
         checkpointId: uuid(),
         agentId: specialist.agentId,
         phase: 'analysis_complete',
-        summary: {
-          goal: `Complete ${specialist.specialization} analysis`,
-          completed: ['Data gathering', 'Initial processing'],
-          pending: ['Final synthesis'],
-          decisions: ['Using MongoDB aggregation pipeline'],
-        },
         timestamp: now(),
       },
     })
@@ -381,11 +391,19 @@ const runDemoFlow = async (directorId: string, task: string) => {
         fromAgent: specialist.agentId,
         toAgent: directorId,
         messageType: 'result' as MessageType,
-        content: `Completed ${specialist.specialization} analysis with findings`,
-        threadId,
-        priority: 'normal',
         preview: `Completed ${specialist.specialization} analysis...`,
       },
+    })
+
+    mockMessages.unshift({
+      messageId,
+      fromAgent: specialist.agentId,
+      toAgent: directorId,
+      content: `Completed ${specialist.specialization} analysis with findings`,
+      type: 'result',
+      threadId,
+      createdAt: now(),
+      read: false,
     })
 
     specialist.status = 'completed'
@@ -435,12 +453,6 @@ const runDemoFlow = async (directorId: string, task: string) => {
       checkpointId: uuid(),
       agentId: directorId,
       phase: 'task_complete',
-      summary: {
-        goal: task,
-        completed: ['Task decomposition', 'Specialist coordination', 'Result aggregation'],
-        pending: [],
-        decisions: ['MongoDB coordination successful', 'All specialists responded'],
-      },
       timestamp: now(),
     },
   })

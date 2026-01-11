@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
@@ -9,8 +9,46 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              'agent-idle': '#6B7280',
+              'agent-working': '#3B82F6',
+              'agent-completed': '#10B981',
+              'agent-error': '#EF4444',
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      /* Custom scrollbar for terminal */
+      .terminal-scroll::-webkit-scrollbar {
+        width: 8px;
+      }
+      .terminal-scroll::-webkit-scrollbar-track {
+        background: #1f2937;
+      }
+      .terminal-scroll::-webkit-scrollbar-thumb {
+        background: #4b5563;
+        border-radius: 4px;
+      }
+      /* Pulse animation for working status */
+      @keyframes pulse-dot {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+      .pulse-working {
+        animation: pulse-dot 1.5s ease-in-out infinite;
+      }
+    </style>
   </head>
-  <body>
+  <body class="bg-gray-900 text-gray-100 min-h-screen">
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

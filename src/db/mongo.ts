@@ -186,6 +186,13 @@ export const ensureIndexes = async (): Promise<void> => {
   const tasks = await getTasksCollection()
   const sandboxTracking = await getSandboxTrackingCollection()
 
+  // Drop legacy unique index that blocks multi-agent shared sandbox
+  try {
+    await sandboxTracking.dropIndex('sandboxId_1')
+  } catch (error) {
+    // Ignore if index doesn't exist
+  }
+
   // Agent indexes
   await agents.createIndex({ agentId: 1 }, { unique: true })
   await agents.createIndex({ status: 1, lastHeartbeat: -1 })

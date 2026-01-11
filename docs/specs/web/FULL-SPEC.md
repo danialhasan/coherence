@@ -392,9 +392,9 @@ UI event handling:
 
 ## 16) Implementation Status & Receipts
 
-**Last Updated:** 2026-01-10 15:55 PT
-**Git Commit:** 0a5b647
-**Tests:** 188/188 passing
+**Last Updated:** 2026-01-11
+**Git Commit:** uncommitted
+**Tests:** not run (local E2E ok)
 
 ### System Implementation Status
 
@@ -432,77 +432,50 @@ UI event handling:
 | agent:status | ✅ FIXED | `server.ts:236,261,275,411` - includes sandboxStatus |
 | agent:output | ✅ DONE | `server.ts:33-38` - content field |
 | agent:killed | ✅ DONE | `server.ts:364-367` |
+| message:new | ✅ DONE | `server.ts` message change stream emits preview |
+| checkpoint:new | ✅ DONE | `server.ts` checkpoint change stream emits phase |
 | task:created | ✅ DONE | `server.ts:222-227` |
 | task:status | ✅ DONE | `server.ts:257-261,277-282` |
 | sandbox:event | ✅ DONE | `server.ts:537,581,625,759` |
 
-### E2E Validation Receipts (2026-01-10)
+### E2E Validation Receipts (2026-01-11)
 
-**Test Run:** Director orchestration with real E2B + MongoDB
-
-```
-Agent ID: edf4e51a-24db-4128-be5e-2fe51f081936
-Sandbox ID: i562bnso6bfk0yxxrkilv
-Task ID: 886953cb-3e0a-492b-9bd4-e82d45e9dbb3
-```
-
-**MongoDB State After Test:**
-- Agents: 28 documents
-- Tasks: 11 documents
-- Messages: 3 documents
-- Checkpoints: 3 created (d8e5f224, 52d8be5a, 149f2240)
-
-**Token Usage Tracked:**
-- First call: +376 input / +231 output
-- Second call: +55 input / +117 output
-
-**Director Orchestration Flow (verified):**
-1. ✅ Connected to MongoDB from sandbox
-2. ✅ Created session (session-17680882...)
-3. ✅ Decomposed task into 3 subtasks
-4. ✅ Spawned 3 specialists (researcher, analyst, writer)
-5. ✅ Created 3 tasks and assigned to specialists
-6. ✅ Sent 3 coordination messages
-7. ✅ Created checkpoints at each phase
-8. ✅ Completed with aggregated result
-
-### Specialist Auto-Start Validation (2026-01-10)
-
-**Test Run:** Specialists auto-started via MongoDB Change Streams
+**Test Run:** Director orchestration with real E2B + MongoDB (local)
 
 ```
-Director ID: 67342a35-2cd1-4d6f-a59a-be09a95f8304
-Specialist ID: 144b223c-... (researcher)
-Task ID: 7076e656-bb23-4081-9daf-9b058898a328
+Director ID: ff7de026-8033-41d3-bff1-63ae70aff9ad
+Task ID: 47404493-f713-4a3d-9d01-bc31e2bc8be4
+Specialists: 589e3acf-2be2-4a86-a023-c84102be584d,
+             266b2622-5f0d-480d-9bf5-ef98b5266a11,
+             6f099a2f-4e1b-4d34-8316-b3efec7169bc
 ```
 
-**Flow Verified:**
-1. ✅ Change Stream detected new specialist: `[Server] Detected new specialist: 144b223c (researcher)`
-2. ✅ Auto-started specialist in sandbox: `[Server] Auto-starting specialist 144b223c for task:...`
-3. ✅ Specialist executed with Claude SDK: `[144b223c] [Agent] Token usage updated: +201 in / +1017 out`
-4. ✅ Task completed: `[Server] Specialist 144b223c completed task: 92f19448`
-5. ✅ Director detected completion: `[67342a35] [Agent] All specialist tasks completed`
-6. ✅ Director aggregated results and completed
+**Result:** task status completed with clean output extracted from sandbox logs.
+**Receipt:** `src/api/server.ts` uses `extractAgentResult()` to parse output markers.
 
 ### Known Gaps
 
 | Gap | Severity | Notes |
 |-----|----------|-------|
-| Auto-start specialists | ✅ FIXED | MongoDB Change Streams auto-detect and start specialists |
-| sandbox_tracking embedded agents[] | Low | Current: one doc per agent. Spec: embedded array. Functional but differs from spec |
 | Pause/Resume E2B | Low | Not tested with real E2B (API supports it) |
 
 ### Files Modified (latest)
 
 ```
-src/api/server.ts          - WebSocket contracts + Specialist auto-start via Change Streams
+src/api/server.ts          - Specialist auto-start via task change streams + clean result extraction
+src/api/websocket.ts       - message:new and checkpoint:new helpers aligned to contract
 src/sdk/runner.ts          - stopReason tracking, S7a/S7b implementation
 src/sandbox/agent-bundle.ts - ESM fix, director orchestration, specialist execution
 src/sandbox/runner.ts      - E2B sandbox runner
 src/sandbox/manager.ts     - sandboxId write to agent, E2B integration
-src/db/mongo.ts            - Schema + indexes (fixed sandbox_tracking compound index)
+src/db/mongo.ts            - Schema + indexes (drop legacy sandboxId_1 index)
 src/coordination/context.ts - Context assembly
 package.json               - dev:api script
 scripts/fix-indexes.ts     - Index repair script
+web/index.html             - Tailwind + fonts for dashboard UI
+web/src/App.vue            - Poll messages from backend API
+web/src/api/client.ts      - Add agents/messages list endpoints
+web/src/api/mock.ts        - Align mock events and message list
+web/src/types/index.ts     - Align WS event types with backend contract
 + test files
 ```

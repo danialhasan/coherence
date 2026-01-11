@@ -3,6 +3,7 @@ import type {
   TaskSubmitResponse,
   KillResponse,
   SandboxResponse,
+  MessageResponse,
 } from '@/types'
 import { isMockMode, mockApi } from './mock'
 
@@ -14,6 +15,12 @@ const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 const realApi = {
   agents: {
+    list: async (): Promise<{ agents: AgentResponse[] }> => {
+      const res = await fetch(`${BASE_URL}/api/agents`)
+      if (!res.ok) throw new Error(`Failed to list agents: ${res.status}`)
+      return res.json()
+    },
+
     spawn: async (): Promise<AgentResponse> => {
       const res = await fetch(`${BASE_URL}/api/agents`, {
         method: 'POST',
@@ -57,6 +64,14 @@ const realApi = {
         body: JSON.stringify({}),
       })
       if (!res.ok) throw new Error(`Failed to restart agent: ${res.status}`)
+      return res.json()
+    },
+  },
+
+  messages: {
+    list: async (limit = 50): Promise<{ messages: MessageResponse[] }> => {
+      const res = await fetch(`${BASE_URL}/api/messages?limit=${limit}`)
+      if (!res.ok) throw new Error(`Failed to list messages: ${res.status}`)
       return res.json()
     },
   },

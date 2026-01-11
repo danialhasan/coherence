@@ -223,16 +223,15 @@ export const emitNewMessage = (
   messageId: string,
   fromAgent: string,
   toAgent: string,
-  content: string,
-  type: string
+  messageType: string,
+  preview: string
 ): void => {
   emitEvent(emitter, 'message:new', {
     messageId,
     fromAgent,
     toAgent,
-    content,
-    type,
-    timestamp: new Date().toISOString(),
+    messageType,
+    preview,
   })
 }
 
@@ -243,13 +242,14 @@ export const emitNewCheckpoint = (
   emitter: SquadEventEmitter,
   checkpointId: string,
   agentId: string,
-  phase: string
+  phase: string,
+  timestamp?: string
 ): void => {
   emitEvent(emitter, 'checkpoint:new', {
     checkpointId,
     agentId,
     phase,
-    timestamp: new Date().toISOString(),
+    timestamp: timestamp ?? new Date().toISOString(),
   })
 }
 

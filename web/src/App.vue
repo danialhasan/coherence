@@ -24,6 +24,8 @@ const outputs = ref<OutputLine[]>([])
 const isConnected = ref(false)
 const error = ref<string | null>(null)
 const mockMode = isMockMode()
+const messageMap = new Map<string, Message>()
+let messagePoller: ReturnType<typeof setInterval> | null = null
 
 // ============================================================
 // TOAST SYSTEM
@@ -146,14 +148,16 @@ const handleWsEvent = (event: WsEvent) => {
     }
 
     case 'message:new': {
-      messages.value.push({
+      const msg: Message = {
         messageId: event.data.messageId,
         fromAgent: event.data.fromAgent,
         toAgent: event.data.toAgent,
         messageType: event.data.messageType,
         preview: event.data.preview,
         timestamp: new Date().toISOString(),
-      })
+      }
+      messageMap.set(msg.messageId, msg)
+      messages.value = Array.from(messageMap.values())
       break
     }
 
@@ -239,12 +243,40 @@ const handleRestart = async (agentId: string) => {
 const handleReset = () => {
   agents.value = []
   messages.value = []
+  messageMap.clear()
   checkpoints.value = []
   outputs.value = []
   error.value = null
   if (mockMode) {
     resetMockState()
   }
+}
+
+// ============================================================
+// MESSAGE SYNC (align frontend to backend API)
+// ============================================================
+
+const buildPreview = (content: string) =>
+  content.length > 50 ? `${content.slice(0, 50)}...` : content
+
+const loadMessages = async () => {
+  const res = await api.messages.list(50)
+  for (const msg of res.messages) {
+    messageMap.set(msg.messageId, {
+      messageId: msg.messageId,
+      fromAgent: msg.fromAgent,
+      toAgent: msg.toAgent,
+      messageType: msg.type,
+      preview: buildPreview(msg.content),
+      timestamp: msg.createdAt,
+    })
+  }
+  messages.value = Array.from(messageMap.values())
+}
+
+const loadAgents = async () => {
+  const res = await api.agents.list()
+  agents.value = res.agents
 }
 
 // ============================================================
@@ -258,10 +290,20 @@ onMounted(() => {
     onDisconnect: () => { isConnected.value = false },
   })
   wsClient.connect()
+
+  loadAgents().catch(console.error)
+  loadMessages().catch(console.error)
+  messagePoller = setInterval(() => {
+    loadMessages().catch(console.error)
+  }, 5000)
 })
 
 onUnmounted(() => {
   wsClient?.disconnect()
+  if (messagePoller) {
+    clearInterval(messagePoller)
+    messagePoller = null
+  }
 })
 </script>
 

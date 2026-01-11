@@ -49,6 +49,21 @@ export interface Message {
 }
 
 // ============================================================
+// API MESSAGE RESPONSE (from backend contract)
+// ============================================================
+
+export interface MessageResponse {
+  messageId: string
+  fromAgent: string
+  toAgent: string
+  content: string
+  type: MessageType
+  threadId: string | null
+  createdAt: string
+  read: boolean
+}
+
+// ============================================================
 // CHECKPOINT TYPES (from CheckpointSchema)
 // ============================================================
 
@@ -196,10 +211,7 @@ export interface WsMessageNewEvent {
     fromAgent: string
     toAgent: string
     messageType: MessageType
-    content: string
-    threadId: string
-    priority: MessagePriority
-    preview: string // Truncated content for UI display
+    preview: string
   }
 }
 
@@ -209,7 +221,6 @@ export interface WsCheckpointNewEvent {
     checkpointId: string
     agentId: string
     phase: string
-    summary: CheckpointSummary
     timestamp: string
   }
 }
@@ -218,7 +229,6 @@ export interface WsSandboxEvent {
   type: 'sandbox:event'
   data: {
     sandboxId: string
-    agentId: string
     event: 'created' | 'paused' | 'resumed' | 'killed'
     timestamp: string
   }
